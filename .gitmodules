@@ -1,0 +1,18 @@
+[submodule "modules/common"]
+	path = modules/common
+	url = https://github.com/aerospike/aerospike-common.git
+[submodule "modules/mod-lua"]
+	path = modules/mod-lua
+	url = https://github.com/aerospike/aerospike-mod-lua.git
+[submodule "modules/jansson"]
+	path = modules/jansson
+	url = https://github.com/aerospike/jansson.git
+[submodule "modules/asmalloc"]
+	path = modules/asmalloc
+	url = https://github.com/aerospike/asmalloc.git
+[submodule "modules/jemalloc"]
+	path = modules/jemalloc
+	url = https://github.com/aerospike/jemalloc.git
+[submodule "modules/lua-core"]
+	path = modules/lua-core
+	url = https://github.com/aerospike/aerospike-lua-core.git

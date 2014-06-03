@@ -1,0 +1,149 @@
+# Aerospike Server
+# Makefile.in
+#
+# Define project global settings for compiler options.
+#
+
+# [Note:  "DEPTH" must be defined by the "include"ing Makefile.]
+
+# Common variable definitions:
+include $(DEPTH)/make_in/Makefile.vars
+
+CF_INCLUDE_DIR = $(DEPTH)/common/src/include
+CF_LIB_DIR     = $(DEPTH)/common/target/$(PLATFORM)/lib
+
+XDR_INCLUDE_DIR = $(DEPTH)/xdr/include
+XDR_LIB_DIR     = $(DEPTH)/xdr/lib
+
+KV_INCLUDE_DIR = /usr/local/include
+KV_LIB_DIR     = /usr/local/lib64
+
+AS_CFLAGS += -D_FILE_OFFSET_BITS=64 -std=gnu99 -D_REENTRANT -D_GNU_SOURCE
+
+# Enable ASMalloc debugging messages:
+AS_CFLAGS += -DDEBUG_ASM
+
+# Use the enhanced memory allocator (rather than the default version in the Common module.)
+AS_CFLAGS += -DENHANCED_ALLOC
+
+ifeq ($(LD_CRYPTO),static)
+  # Find and add the static OpenSSL "crypto" library.
+  LIBRARIES = $(or \
+    $(wildcard /usr/local/lib/libcrypto.a), \
+    $(wildcard /usr/lib64/libcrypto.a), \
+    $(wildcard /usr/lib/x86_64-linux-gnu/libcrypto.a), \
+    $(wildcard /usr/lib/libcrypto.a), \
+    $(error Cannot find "libcrypto.a"))
+else
+  LIBRARIES = -lcrypto
+endif
+
+LIBRARIES += -lpthread -lrt -ldl -lz -lm
+
+# State variables determining phase of macroexpansion during the build:
+#   MExp Phase 0 ==> No macro expansion (the default.)
+#   MExp Phase 1 ==> Expand macros using "m4".
+#   MExp Phase 2 ==> Final build using the macro-expanded source code.
+MEXP_PHASE = 0
+
+# Location of source files being compiled:
+#   "" (the default) means "src".  Automatically set to "../m4/" during non-zero macro expansion build phases.
+SRCDIR =
+
+ifeq ($(MEM_COUNT),1)
+  AS_CFLAGS += -DMEM_COUNT
+endif
+
+ifeq ($(USE_ASM),1)
+  AS_CFLAGS += -DUSE_ASM
+  INCLUDES += -I$(ASMALLOC)/include
+endif
+
+ifeq ($(USE_JEM),1)
+  AS_CFLAGS += -DUSE_JEM
+  INCLUDES += -I$(JEMALLOC)/include
+  ifeq ($(LD_JEM),static)
+    LIBRARIES := $(JEMALLOC)/lib/libjemalloc.a $(LIBRARIES)
+  else
+    LIBRARIES := -L$(JEMALLOC)/lib -ljemalloc $(LIBRARIES)
+  endif
+endif
+
+PREPRO_SUFFIX = .cpp
+ifeq ($(PREPRO),1)
+  SUFFIX = $(PREPRO_SUFFIX)
+  AS_CFLAGS += -E -DPREPRO=$(PREPRO) -DGEN_TAG=$(GEN_TAG)"\
+"
+else
+  ifeq ($(MEXP_PHASE),2)
+    AS_CFLAGS += -DUSE_ASM
+    INCLUDES += -I$(ASMALLOC)/include
+  endif
+endif
+
+ifeq ($(WRAP),1)
+  CFLAGS += -DWRAP_MALLOC
+  # Alternative syntax for the wrapping flags:
+  # WRAPFLAGS = -Xlinker -wrap=calloc -Xlinker -wrap=malloc -Xlinker -wrap=realloc
+  WRAPFLAGS = -Wl,-wrap=calloc,-wrap=malloc,-wrap=free,-wrap=realloc,-wrap=strdup,-wrap=strndup,-wrap=posix_memalign
+endif
+
+# Popular values:
+#   x86_64 for 64-bit Intel
+#   i686 for 32-bit Intel
+MARCH_NATIVE = $(shell uname -m)
+
+# If GCC v4.4.7 or later, use DWARF version 4, othewise use version 2:
+ifeq ($(shell $(DEPTH)/build/VersionCheck.py 'gcc -dumpversion' 4.4.7), 1)
+  DWARF_VERSION=4
+else
+  DWARF_VERSION=2
+endif
+
+ifeq ($(DOPROFILE),1)
+  OPTFLAGS = -O0 -fPIE -pg -fprofile-arcs -ftest-coverage -DDOPROFILE
+else
+  OPTFLAGS = -O3
+endif
+
+# Strict aliasing is really interesting. -fno-strict-aliasing relaxes the coding rules, but makes
+# some code run a little slower. I'm not seeing a real difference at the moment, so turning it off
+# I think to get the real speed, you turn on -fstrict-aliasing, and the appropriate -W, which 
+# generates a few warnings in our code where type punning is used for printf sanity. This
+# also interacts with the restrict keyword, which I understand in theory, but attempts to use
+# it throw errors out of the compiler so I don't understand it yet.
+#
+# Removing the frame pointers does add a few percent in speed, too, but we need better debugging
+# at this point...
+#
+# And the jury's a little out on -mss3 and -msse4. They aren't turned on by -march=native,
+# even though native should understand that those are the preferred types, and available.
+#
+# Tree vectorize is turned on the in the O3 mechanism. It's fascinating to turn on the tree vectorize
+# debugs. Very rarely do we have loops that vectorize, because we often use functions in our loops.
+# and, sometimes loops are vectorized but will need lengths greater than 20 or 30 to show speed improvements,
+# loops of this size are unlikely in our code.
+#
+# O3 also enables -finline-functions, among other things.
+COMMON_CFLAGS = -gdwarf-$(DWARF_VERSION) -g3 $(OPTFLAGS) -fno-common -fno-strict-aliasing -Wall $(AS_CFLAGS)
+
+# Code generated for the "nocona" architecture has been determined to run well on a wide variety of current machines.
+COMMON_CFLAGS += -march=nocona
+
+# Generate dependency files.
+COMMON_CFLAGS += -MMD
+
+CFLAGS = $(COMMON_CFLAGS) -DMARCH_$(MARCH_NATIVE)
+
+# Define a macro for the base source file name.
+DEF_FN += -D__FILENAME__=\"$(notdir $<)\"
+
+# Alternative Compiler Flags Settings:
+# Note:  "native" is optimized for the build environment, which might not be the same as the deployment environment:
+#CFAGS_NATIVE = $(COMMON_CFLAGS) -march=native
+#CFLAGS_64 = $(COMMON_FLAGS) -DMARCH_x86_64
+#CFLAGS_32 = $(COMMON_CFLAGS) -DMARCH_i686
+
+LDFLAGS = -rdynamic -L$(CF_LIB_DIR) -L$(XDR_LIB_DIR) -L$(KV_LIB_DIR) $(WRAPFLAGS)
+
+STRIP = strip -p -v -s

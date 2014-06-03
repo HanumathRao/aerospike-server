@@ -1,0 +1,113 @@
+#!/bin/bash
+# chkconfig: 2345 85 15
+# description: Starts and stops the Aerospike daemon
+# this version is for debian/ubuntu which is, as usual, very different from RH
+# current state of the art appears using /lib/lsb/init-functions for logging but not for process
+# this is a very minimal init script!
+
+### BEGIN INIT INFO
+# Provides:		asd
+# Required-Start:
+# Required-Stop:
+# Default-Start:
+# Deafult-Stop:
+# Short-Description:	Aerospike Clustered Data Service
+### END INIT INFO
+
+# halt on error
+set -e
+
+ASD=/usr/bin/asd
+ASDN=$(basename $ASD)
+PIDDIR=/var/run/aerospike
+CONFIG_FILE=/etc/aerospike/aerospike.conf
+OPTS="--config-file $CONFIG_FILE"
+COLD_OPTS="$OPTS --cold-start"
+ASD_USER="aerospike"
+ASD_GROUP=$ASD_USER
+
+INITFNS=/etc/aerospike/initfns
+if [ -f $INITFNS ]; then . $INITFNS; fi
+
+test -x $ASD || exit 0
+
+. /lib/lsb/init-functions
+
+set_shmall() {
+	mem=`/sbin/sysctl -n kernel.shmall`
+	min=4294967296
+	if [ "$mem" -lt $min ]
+	then
+		echo "kernel.shmall too low, setting to 4G pages"
+		/sbin/sysctl -w kernel.shmall=$min
+	fi
+}
+
+set_shmmax() {
+	mem=`/sbin/sysctl -n kernel.shmmax`
+	min=1073741824
+	if [ "$mem" -lt $min ]
+	then
+		echo "kernel.shmmax too low, setting to 1GB"
+		/sbin/sysctl -w kernel.shmmax=$min
+	fi
+}
+
+#We are adding create_piddir as /var/run is tmpfs on ubuntu12.04. This causes
+#the piddir to be removed on reboot
+create_piddir() {
+	if [ ! -d $PIDDIR ] 
+	then
+		mkdir $PIDDIR
+		chown $ASD_USER:$ASD_GROUP $PIDDIR
+	fi
+	}
+
+case "$1" in
+	start)
+		ulimit -n 100000
+		log_daemon_msg "Start aerospike: " "asd"
+		set_shmall
+		set_shmmax
+		create_piddir
+		if start-stop-daemon --start --quiet --name $ASDN --exec $ASD -- $OPTS; then
+			log_end_msg 0
+		else
+			log_end_msg 1
+		fi
+		;;
+	coldstart)
+		ulimit -n 100000
+		log_daemon_msg "Cold-start aerospike: " "asd"
+		set_shmall
+		set_shmmax
+		create_piddir
+		if start-stop-daemon --start --quiet --name $ASDN --exec $ASD -- $COLD_OPTS; then
+			log_end_msg 0
+		else
+			log_end_msg 1
+		fi
+		;;
+	stop)
+		log_daemon_msg "Halt aerospike: " "asd"
+		if start-stop-daemon --stop --quiet --name $ASDN  ; then
+			log_end_msg 0
+		else
+			log_end_msg 1
+		fi
+		;;
+	status)
+		status_of_proc $ASD $ASDN && exit 0 || exit $?
+		;;
+	restart)
+		$0 stop
+		sleep 3
+		$0 start
+		;;
+	*)
+		echo $"Usage: $0 {start|stop|status|restart|coldstart}"
+		exit 2
+		;;
+esac
+
+exit 0

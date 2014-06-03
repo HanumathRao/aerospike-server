@@ -1,0 +1,358 @@
+/*
+ * monitor.c
+ *
+ * Copyright (C) 2013-2014 Aerospike, Inc.
+ *
+ * Portions may be licensed to Aerospike, Inc. under one or more contributor
+ * license agreements.
+ *
+ * This program is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see http://www.gnu.org/licenses/
+ */
+
+/*
+ *  Aerospike Long Running Job Monitoring interface
+ *
+ *  This file implements the generic interface for the long running jobs
+ *  in Aerospike like query / scan / batch etc. The idea is to able to see
+ *  what is going on in the system.
+ *
+ *  Each module which needs to show up in the monitoring needs to register
+ *  and implement the interfaces.
+ */
+
+#include <stdlib.h>
+#include <stdio.h>
+
+#include "base/secondary_index.h"
+#include "base/monitor.h"
+#include "base/thr_scan.h"
+
+
+#define AS_MON_MAX_MODULE 10
+
+// functional declaration
+int    as_mon_populate_jobstat(as_mon_jobstat * stat, cf_dyn_buf *db);
+static as_mon * g_as_mon_module[AS_MON_MAX_MODULE];
+static uint32_t g_as_mon_curr_mod_count;
+int    as_mon_register(char *module);
+
+/*
+ * This is called to init the mon subsystem.
+ */
+int
+as_mon_init()
+{
+	g_as_mon_curr_mod_count = 0;
+	as_mon_register("query");
+	as_mon_register("scan");
+
+	// TODO: Add more stuff if there is any locks needs some stats needed etc etc ...
+	return AS_MON_OK;
+}
+
+as_mon *
+as_mon_get_module(char * module)
+{
+	as_mon_module_slot mod;
+	if (strcmp(module, "query") == 0) {
+		mod = QUERY_MOD;
+	}
+	else if (strcmp(module, "scan") == 0) {
+		mod = SCAN_MOD;
+	}
+	else {
+		return NULL;
+	}
+
+	return g_as_mon_module[mod];
+}
+
+/*
+ * The call to register a module to be tracked under as mon interface
+ * Returns -
+ * 		AS_MON_OK    - On successful registartion.
+ * 		AS_MON_ERROR - failure
+ */
+int
+as_mon_register(char *module)
+{
+	if (!module) return AS_MON_ERR;
+	as_mon *mon_obj = (as_mon *) cf_rc_alloc(sizeof(as_mon));
+	if (!mon_obj) {
+		cf_warning(AS_MON, "Failed to allocate as job monitor object %s", module);
+		return AS_MON_ERR;
+	}
+
+	as_mon_cb *cb = cf_malloc(sizeof(as_mon_cb));
+	as_mon_module_slot mod;
+
+	if(!strcmp(module, "query")) {
+		cb->get_jobstat     = as_query_get_jobstat;
+		cb->get_jobstat_all = as_query_get_jobstat_all;
+
+		cb->set_priority    = as_query_set_priority;
+		cb->kill            = as_query_kill;
+		cb->suspend         = NULL;
+		cb->set_pendingmax  = NULL;
+		cb->set_maxinflight = NULL;
+		cb->set_maxpriority = NULL;
+		mod = QUERY_MOD;
+	}
+	else if (!strcmp(module, "scan"))
+	{
+		cb->get_jobstat     = as_tscan_get_jobstat;
+		cb->get_jobstat_all = as_tscan_get_jobstat_all;
+
+		cb->set_priority    = NULL;
+		cb->kill            = as_tscan_abort;
+		cb->suspend         = NULL;
+		cb->set_pendingmax  = NULL;
+		cb->set_maxinflight = NULL;
+		cb->set_maxpriority = NULL;
+		mod = SCAN_MOD;
+	}
+	else {
+		cf_warning(AS_MON, "wrong module parameter.");
+		return AS_MON_ERR;
+	}
+	// Setup mon object
+	mon_obj->type  = cf_strdup(module);
+	memcpy(&mon_obj->cb, cb, sizeof(as_mon_cb));
+
+	g_as_mon_curr_mod_count++;
+	g_as_mon_module[mod] = mon_obj;
+	return AS_MON_OK;
+}
+
+/*
+ * Calls the callback function to kill a job.
+ *
+ * Returns
+ * 		AS_MON_OK - On success.
+ * 		AS_MON_ERR - on failure.
+ *
+ */
+int
+as_mon_killjob(char *module, uint64_t id)
+{
+	if (!module || id == 0 ) return AS_MON_ERR;
+	int retval = AS_MON_ERR;
+	as_mon * mon_object = as_mon_get_module(module);
+
+	if (!mon_object) {
+		cf_warning(AS_MON, "Failed to find module %s", module);
+		return retval;
+	}
+	if (mon_object->cb.kill) {
+		retval = mon_object->cb.kill(id);
+	}
+	return retval;
+}
+
+/*
+ * Calls the callback function to set priority if a job.
+ *
+ * Returns
+ * 		AS_MON_OK - On success.
+ * 		AS_MON_ERR - on failure.
+ *
+ */
+int
+as_mon_set_priority(char *module, uint64_t id, uint32_t priority, cf_dyn_buf *db)
+{
+	if (!module || id == 0 || priority == 0 ) return AS_MON_ERR;
+	int retval = AS_MON_ERR;
+	as_mon * mon_object = as_mon_get_module(module);
+
+	if (!mon_object) {
+		cf_warning(AS_MON, "Failed to find module %s", module);
+		return retval;
+	}
+	if (mon_object->cb.set_priority) {
+		retval = mon_object->cb.set_priority(id, priority);
+	}
+	return retval;
+}
+/*
+ * Calls the callback function to populate the stat of a particular job.
+ *
+ * Returns
+ * 		AS_MON_OK - On success.
+ * 		AS_MON_ERR - on failure.
+ *
+ */
+int
+as_mon_populate_jobstat(as_mon_jobstat * job_stat, cf_dyn_buf *db)
+{
+	cf_dyn_buf_append_string(db, "trid=");
+	cf_dyn_buf_append_uint64(db, job_stat->trid);
+
+	cf_dyn_buf_append_string(db, ":ns=");
+	cf_dyn_buf_append_string(db, job_stat->ns);
+
+	cf_dyn_buf_append_string(db, ":set=");
+	cf_dyn_buf_append_string(db, job_stat->set);
+
+	cf_dyn_buf_append_string(db, ":status=");
+	cf_dyn_buf_append_string(db, job_stat->status);
+
+	//	char cpu_data[100];
+	//	sprintf(cpu_data, "%f", job_stat->cpu);
+	//	cf_dyn_buf_append_string(db, cpu_data);
+
+	cf_dyn_buf_append_string(db, ":mem_usage=");
+	cf_dyn_buf_append_uint64(db, job_stat->mem);
+
+	cf_dyn_buf_append_string(db, ":run_time=");
+	cf_dyn_buf_append_uint64(db, job_stat->run_time);
+
+	cf_dyn_buf_append_string(db, ":recs_read=");
+	cf_dyn_buf_append_uint64(db, job_stat->recs_read);
+
+	cf_dyn_buf_append_string(db, ":net_io_bytes=");
+	cf_dyn_buf_append_uint64(db, job_stat->net_io_bytes);
+
+	cf_dyn_buf_append_string(db, ":priority=");
+	cf_dyn_buf_append_uint64(db, job_stat->priority);
+
+	if (job_stat->jdata) {
+		cf_dyn_buf_append_string(db, ":");
+		cf_dyn_buf_append_string(db, job_stat->jdata);
+	}
+
+	return AS_MON_OK;
+}
+
+static int
+as_mon_get_jobstat_reduce_fn(as_mon *mon_object, cf_dyn_buf *db)
+{
+	int size = 0;
+	as_mon_jobstat * job_stats = NULL;
+	if (mon_object->cb.get_jobstat_all) {
+		job_stats = mon_object->cb.get_jobstat_all(&size);
+	}
+
+	// return OK to go to next module
+	if (!job_stats) return AS_MON_OK;
+
+	as_mon_jobstat * job;
+	job = job_stats;
+
+	for (int i = 0; i < size; i++) {
+		cf_dyn_buf_append_string(db, "module=");
+		cf_dyn_buf_append_string(db, mon_object->type);
+		cf_dyn_buf_append_string(db, ":");
+		as_mon_populate_jobstat(job, db);
+		cf_dyn_buf_append_string(db, ";");
+		job++;
+	}
+	cf_free(job_stats);
+	return AS_MON_OK;
+}
+
+/*
+ * This is called when the info call is triggerred to get the info
+ * about all the jobs.
+ *
+ * parameter:
+ *     @db: in/out which gets populated. Each module stats is colon separated
+ *          key:value and each module info is semicolon separated.
+ *          e.g module:query:cpu:<val>:mem:<val>;module:query:cpu:<val>:mem:<val>;
+ *
+ * returns: 0 in case of success
+ *          negative value in case of failure
+ */
+int
+as_mon_get_jobstat_all(char *module, cf_dyn_buf *db)
+{
+	for (int i = 0; i < g_as_mon_curr_mod_count; i++) {
+		if ((module && !strcmp(g_as_mon_module[i]->type, module))
+				|| (!module)) {
+			as_mon_get_jobstat_reduce_fn(g_as_mon_module[i], db);
+		}
+	}
+	cf_dyn_buf_chomp(db);
+	return 0;
+}
+
+/*
+ * This is called when the info call is triggerred to get the info
+ * about a particular job in particular module.
+ *
+ * parameter:
+ *     @db: in/out which gets populated. Each module stats is colon separated
+ *          key:value and each module info is semicolon separated.
+ *          e.g module:query:cpu:<val>:mem:<val>;module:query:cpu:<val>:mem:<val>;
+ *
+ * returns: 0 in case of success
+ *          negative value in case of failure
+ */
+int
+as_mon_get_jobstat(char *module, uint64_t id, cf_dyn_buf *db)
+{
+	if (!module || id == 0 ) return AS_MON_ERR;
+	int      retval     = AS_MON_ERR;
+	as_mon * mon_object = as_mon_get_module(module);;
+
+	if (!mon_object) {
+		cf_warning(AS_MON, "Failed to find module %s", module);
+		return retval;
+	}
+
+	as_mon_jobstat * job_stat = NULL;
+	if (mon_object->cb.get_jobstat) {
+		job_stat = mon_object->cb.get_jobstat(id);
+	}
+
+	if (job_stat) {
+		retval = as_mon_populate_jobstat(job_stat, db);
+		cf_free(job_stat);
+	}
+	return retval;
+}
+
+/*
+ * Manipulates the monitor system.
+ * Add, delete, reinit the modules.
+ *
+ */
+
+void
+as_mon_info_cmd(char *module, char *cmd, uint64_t trid, uint32_t value, cf_dyn_buf *db)
+{
+	int retval = AS_MON_ERR;
+
+	if (module == NULL) {
+		retval = as_mon_get_jobstat_all(NULL, db);
+		return;
+	}
+
+	if (cmd == NULL) {
+		retval = as_mon_get_jobstat_all(module, db);
+		return;
+	}
+
+	if (!strcmp(cmd, "get-job")) {
+		retval = as_mon_get_jobstat(module, trid, db);
+	}
+	else if (!strcmp(cmd, "kill-job")) {
+		retval = as_mon_killjob(module, trid);
+	}
+	else if (!strcmp(cmd, "set-priority")) {
+		retval = as_mon_set_priority(module, trid, value, db);
+	}
+	if (retval != AS_MON_OK) {
+		cf_dyn_buf_append_string(db, "error");
+	}
+}

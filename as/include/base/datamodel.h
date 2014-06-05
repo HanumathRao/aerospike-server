@@ -492,6 +492,7 @@ extern uint32_t as_record_buf_get_stack_particles_sz(uint8_t *buf);
 extern int as_record_unpickle_replace(as_record *r, as_storage_rd *rd, uint8_t *buf, size_t bufsz, uint8_t **stack_particles);
 extern int as_record_unpickle_merge(as_record *r, as_storage_rd *rd, uint8_t *buf, size_t bufsz, uint8_t **stack_particles, bool *record_written);
 extern int as_record_unused_version_get(as_storage_rd *rd);
+extern void as_record_apply_properties(as_record *r, as_namespace *ns, const as_rec_props *p_rec_props);
 extern void as_record_set_properties(as_storage_rd *rd, const as_rec_props *rec_props);
 extern int as_record_set_set_from_msg(as_record *r, as_namespace *ns, as_msg *m);
 

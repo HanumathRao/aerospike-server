@@ -2190,17 +2190,15 @@ write_local_pickled(cf_digest *keyd, as_partition_reservation *rsv,
 		as_storage_record_open(rsv->ns, r, &rd, keyd);
 	}
 
-	if (info & RW_INFO_SINDEX_TOUCHED) {
-		rd.ignore_record_on_device = false;
-	} else {
-		rd.ignore_record_on_device = true;
-	}
+	bool has_sindex = (info & RW_INFO_SINDEX_TOUCHED) != 0;
+
+	rd.ignore_record_on_device = ! has_sindex;
 
 	rd.n_bins = as_bin_get_n_bins(r, &rd);
 	uint16_t newbins = ntohs(*(uint16_t *) pickled_buf);
 
-	if (! rd.ns->storage_data_in_memory && ! rd.ns->single_bin) {
-		rd.n_bins += newbins;
+	if (! rd.ns->storage_data_in_memory && ! rd.ns->single_bin && newbins > rd.n_bins) {
+		rd.n_bins = newbins;
 	}
 
 	as_bin stack_bins[rd.ns->storage_data_in_memory ? 0 : rd.n_bins];
@@ -2220,7 +2218,7 @@ write_local_pickled(cf_digest *keyd, as_partition_reservation *rsv,
 	cf_detail(AS_RW, "TO PINDEX FROM MASTER Digest=%"PRIx64" bits %d \n",
 				*(uint64_t *)&rd.keyd, as_ldt_record_get_rectype_bits(r));
 
-	if (0 != (rv = as_record_unpickle_replace(r, &rd, pickled_buf, pickled_sz, &p_stack_particles))) {
+	if (0 != (rv = as_record_unpickle_replace(r, &rd, pickled_buf, pickled_sz, &p_stack_particles, has_sindex))) {
 		// Is there any clean up that must be done here???
 	}
 

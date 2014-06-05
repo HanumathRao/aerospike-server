@@ -592,33 +592,27 @@ as_record_unpickle_merge(as_record *r, as_storage_rd *rd, uint8_t *buf, size_t s
 }
 
 int
-as_record_unpickle_replace(as_record *r, as_storage_rd *rd, uint8_t *buf, size_t sz, uint8_t **stack_particles)
+as_record_unpickle_replace(as_record *r, as_storage_rd *rd, uint8_t *buf, size_t sz, uint8_t **stack_particles, bool has_sindex)
 {
 	as_namespace *ns = rd->ns;
 
 	uint8_t *buf_lim = buf + sz;
 
 	uint16_t newbins = ntohs( *(uint16_t *) buf );
-	uint16_t old_n_bins = rd->n_bins;
 	buf += 2;
 
-	if (newbins == 0) {
-		cf_debug(AS_RECORD, "as_record_unpickle_replace: received record with no bins, illegal");
-		return -1;
-	} else if (newbins > BIN_NAMES_QUOTA) {
+	if (newbins > BIN_NAMES_QUOTA) {
 		cf_warning(AS_RECORD, "as_record_unpickle_replace: received record with too many bins (%d), illegal", newbins);
 		return -2;
 	}
 
-	if (old_n_bins > newbins) {
-		cf_detail(AS_RECORD, "Oldbin = %d, New Bin %d", old_n_bins, newbins);
-	}
+	// Remember that rd->n_bins may not be the number of existing bins.
+	uint16_t old_n_bins =  (ns->storage_data_in_memory || ns->single_bin) ?
+			rd->n_bins : as_bin_inuse_count(rd);
 
 	SINDEX_BINS_SETUP(oldbin, old_n_bins);
 	SINDEX_BINS_SETUP(newbin, newbins);
-	int32_t  delta_bins   = (int32_t)(newbins - rd->n_bins);
-	uint16_t new_size     = (uint16_t)((int32_t)rd->n_bins + delta_bins);
-	bool     has_sindex   = as_sindex_ns_has_sindex(rd->ns);
+	int32_t  delta_bins   = (int32_t)newbins - (int32_t)old_n_bins;
 	int      sindex_ret   = AS_SINDEX_OK;
 	int      oldbin_cnt   = 0;
 	int      newbin_cnt   = 0;
@@ -629,22 +623,36 @@ as_record_unpickle_replace(as_record *r, as_storage_rd *rd, uint8_t *buf, size_t
 		SINDEX_GRLOCK();
 	}
 
-	if ((delta_bins < 0 ) && has_sindex) {
-		sindex_ret = as_sindex_sbin_from_rd(rd, new_size, old_n_bins, oldbin, &del_success);
-		if(sindex_ret == AS_SINDEX_OK) {
+	if ((delta_bins < 0) && has_sindex) {
+		sindex_ret = as_sindex_sbin_from_rd(rd, newbins, old_n_bins, oldbin, &del_success);
+		if (sindex_ret == AS_SINDEX_OK) {
 			cf_detail(AS_RECORD, "Expected sbin deletes : %d  Actual sbin deletes: %d", -1 * delta_bins, del_success);
 		} else {
 			cf_warning(AS_RECORD, "sbin delete failed: %s", as_sindex_err_str(sindex_ret));
 		}
 	}
-	if (del_success) check_update = true;
+	if (del_success) {
+		check_update = true;
+	}
 	oldbin_cnt += del_success;
 
-	// allocate memory for new bins, if necessary
-	if (rd->ns->storage_data_in_memory && ! rd->ns->single_bin) {
+	if (ns->storage_data_in_memory && ! ns->single_bin) {
 		if (delta_bins) {
+			// If sizing down, this does destroy the excess particles.
 			as_bin_allocate_bin_space(r, rd, delta_bins);
 		}
+	}
+	else if (delta_bins < 0) {
+		// Data not in memory and we had read existing bins for sindex purposes.
+		// No need to destroy particles - if data-not-in-memory they're always
+		// on the stack - just empty the bins that won't be reused, so the old
+		// bins don't get written to device.
+		as_bin_set_empty_from(rd, newbins);
+	}
+
+	const char* set_name = NULL;
+	if (has_sindex) {
+		set_name = as_index_get_set_name(rd->r, ns);
 	}
 
 	int ret = 0;
@@ -669,9 +677,8 @@ as_record_unpickle_replace(as_record *r, as_storage_rd *rd, uint8_t *buf, size_t
 
 			if (has_sindex) {
 				// delete also
-				sindex_ret = as_sindex_sbin_from_bin(ns,
-								as_index_get_set_name(rd->r, ns),
-								b, &oldbin[oldbin_cnt]);
+				sindex_ret = as_sindex_sbin_from_bin(ns, set_name, b,
+						&oldbin[oldbin_cnt]);
 				if (sindex_ret == AS_SINDEX_OK) {
 					check_update = true;
 					oldbin_cnt++;
@@ -703,9 +710,8 @@ as_record_unpickle_replace(as_record *r, as_storage_rd *rd, uint8_t *buf, size_t
 
 		if (has_sindex && bin_has_sindex) {
 			// insert
-			sindex_ret = as_sindex_sbin_from_bin(ns,
-							as_index_get_set_name(rd->r, ns),
-							b, &newbin[newbin_cnt]);
+			sindex_ret = as_sindex_sbin_from_bin(ns, set_name, b,
+					&newbin[newbin_cnt]);
 			if (sindex_ret == AS_SINDEX_OK) {
 				newbin_cnt++;
 			} else {
@@ -729,8 +735,10 @@ as_record_unpickle_replace(as_record *r, as_storage_rd *rd, uint8_t *buf, size_t
 				}
 			}
 		}
-		if (! ns->storage_data_in_memory && type != AS_PARTICLE_TYPE_INTEGER)
+
+		if (! ns->storage_data_in_memory && type != AS_PARTICLE_TYPE_INTEGER) {
 			*stack_particles += as_particle_get_base_size(type) + d_sz;
+		}
 
 		buf += d_sz;
 	}
@@ -743,14 +751,18 @@ as_record_unpickle_replace(as_record *r, as_storage_rd *rd, uint8_t *buf, size_t
 		if (has_sindex) {
 			if (oldbin_cnt) {
 				cf_detail(AS_RECORD, "Sindex Delete @ %s %d", __FILE__, __LINE__);
-				sindex_ret = as_sindex_delete_by_sbin(ns, as_index_get_set_name(rd->r, ns), oldbin_cnt, oldbin, rd);
-				if (sindex_ret != AS_SINDEX_OK) cf_warning(AS_RECORD, "Failed: %s", as_sindex_err_str(sindex_ret));
+				sindex_ret = as_sindex_delete_by_sbin(ns, set_name, oldbin_cnt, oldbin, rd);
+				if (sindex_ret != AS_SINDEX_OK) {
+					cf_warning(AS_RECORD, "Failed: %s", as_sindex_err_str(sindex_ret));
+				}
 			}
 
 			if (newbin_cnt) {
 				cf_detail(AS_RECORD, "Sindex Insert @ %s %d", __FILE__, __LINE__);
-				sindex_ret = as_sindex_put_by_sbin(ns, as_index_get_set_name(rd->r, ns), newbin_cnt, newbin, rd);
-				if (sindex_ret != AS_SINDEX_OK) cf_warning(AS_RECORD, "Failed: %s", as_sindex_err_str(sindex_ret));
+				sindex_ret = as_sindex_put_by_sbin(ns, set_name, newbin_cnt, newbin, rd);
+				if (sindex_ret != AS_SINDEX_OK) {
+					cf_warning(AS_RECORD, "Failed: %s", as_sindex_err_str(sindex_ret));
+				}
 			}
 		}
 
@@ -763,10 +775,14 @@ as_record_unpickle_replace(as_record *r, as_storage_rd *rd, uint8_t *buf, size_t
 	}
 
 	if (has_sindex) {
-		
-		if (oldbin_cnt)  as_sindex_sbin_freeall(oldbin, oldbin_cnt);
-		if (newbin_cnt)  as_sindex_sbin_freeall(newbin, newbin_cnt);
+		if (oldbin_cnt) {
+			as_sindex_sbin_freeall(oldbin, oldbin_cnt);
+		}
+		if (newbin_cnt) {
+			as_sindex_sbin_freeall(newbin, newbin_cnt);
+		}
 	}
+
 	return ret;
 }
 
@@ -1050,7 +1066,9 @@ as_record_merge(as_partition_reservation *rsv, cf_digest *keyd, uint16_t n_compo
 	uint32_t generation = r->generation;
 	uint32_t void_time  = r->void_time;
 
-	rd.ignore_record_on_device = rd.ns->single_bin;
+	bool has_sindex = as_sindex_ns_has_sindex(rd.ns);
+
+	rd.ignore_record_on_device = rd.ns->single_bin; // TODO - set to ! has_sindex
 	rd.n_bins = as_bin_get_n_bins(r, &rd);
 
 	uint16_t newbins = 0;
@@ -1122,7 +1140,7 @@ as_record_merge(as_partition_reservation *rsv, cf_digest *keyd, uint16_t n_compo
 
 			// this section of unpickle will overwite because the new info is a superset
 
-			as_record_unpickle_replace(r, &rd, c->record_buf, c->record_buf_sz, &p_stack_particles);
+			as_record_unpickle_replace(r, &rd, c->record_buf, c->record_buf_sz, &p_stack_particles, has_sindex);
 
 			as_index_vinfo_mask_union( r, as_record_vinfoset_mask_get( rsv->p, &c->vinfoset, 0), rd.ns->allow_versions);
 
@@ -1223,12 +1241,13 @@ as_record_flatten_component(as_partition_reservation *rsv, as_storage_rd *rd,
 		as_index_ref *r_ref, as_record_merge_component *c)
 {
 	as_index *r = r_ref->r;
-	rd->ignore_record_on_device = true;
+	bool has_sindex = as_sindex_ns_has_sindex(rd->ns);
+	rd->ignore_record_on_device = true; // TODO - set to ! has_sindex
 	rd->n_bins = as_bin_get_n_bins(r, rd);
 	uint16_t newbins = ntohs(*(uint16_t *) c->record_buf);
 
-	if (! rd->ns->storage_data_in_memory && ! rd->ns->single_bin) {
-		rd->n_bins += newbins;
+	if (! rd->ns->storage_data_in_memory && ! rd->ns->single_bin && newbins > rd->n_bins) {
+		rd->n_bins = newbins;
 	}
 
 	as_bin stack_bins[rd->ns->storage_data_in_memory ? 0 : rd->n_bins];
@@ -1252,7 +1271,7 @@ as_record_flatten_component(as_partition_reservation *rsv, as_storage_rd *rd,
 	uint8_t *p_stack_particles = stack_particles;
 
 	as_record_set_properties(rd, &c->rec_props);
-	as_record_unpickle_replace(r, rd, c->record_buf, c->record_buf_sz, &p_stack_particles);
+	as_record_unpickle_replace(r, rd, c->record_buf, c->record_buf_sz, &p_stack_particles, has_sindex);
 
 	if (rd->ns->ldt_enabled) {
 		as_ldt_record_set_rectype_bits(r, &c->rec_props);

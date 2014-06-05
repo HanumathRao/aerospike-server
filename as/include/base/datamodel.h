@@ -489,7 +489,7 @@ extern void as_record_allocate_key(as_record* r, const uint8_t* key, uint32_t ke
 extern int as_record_pickle(as_record *r, as_storage_rd *rd, uint8_t **buf_r, size_t *len_r);
 extern int as_record_pickle_a_delete(byte **buf_r, size_t *len_r);
 extern uint32_t as_record_buf_get_stack_particles_sz(uint8_t *buf);
-extern int as_record_unpickle_replace(as_record *r, as_storage_rd *rd, uint8_t *buf, size_t bufsz, uint8_t **stack_particles);
+extern int as_record_unpickle_replace(as_record *r, as_storage_rd *rd, uint8_t *buf, size_t bufsz, uint8_t **stack_particles, bool has_sindex);
 extern int as_record_unpickle_merge(as_record *r, as_storage_rd *rd, uint8_t *buf, size_t bufsz, uint8_t **stack_particles, bool *record_written);
 extern int as_record_unused_version_get(as_storage_rd *rd);
 extern void as_record_set_properties(as_storage_rd *rd, const as_rec_props *rec_props);

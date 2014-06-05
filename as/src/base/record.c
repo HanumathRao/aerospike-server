@@ -962,35 +962,45 @@ as_record_unused_version_get(as_storage_rd *rd)
 }
 
 void
+as_record_apply_properties(as_record *r, as_namespace *ns, const as_rec_props *p_rec_props)
+{
+	// Set the record's set-id if it doesn't already have one. (If it does,
+	// we assume they're the same.)
+	if (! as_index_has_set(r)) {
+		const char* set_name;
+
+		if (as_rec_props_get_value(p_rec_props, CL_REC_PROPS_FIELD_SET_NAME,
+				NULL, (uint8_t**)&set_name) == 0) {
+			as_index_set_set(r, ns, set_name, false);
+		}
+	}
+
+	// If a key wasn't stored, and we got one, accommodate it.
+	// TODO - do this differently so we can remove keys.
+	if (! as_index_is_flag_set(r, AS_INDEX_FLAG_KEY_STORED)) {
+		uint32_t key_size;
+		uint8_t* key;
+
+		if (as_rec_props_get_value(p_rec_props, CL_REC_PROPS_FIELD_KEY,
+				&key_size, &key) == 0) {
+			if (ns->storage_data_in_memory) {
+				as_record_allocate_key(r, key, key_size);
+			}
+
+			as_index_set_flags(r, AS_INDEX_FLAG_KEY_STORED);
+		}
+	}
+}
+
+void
 as_record_set_properties(as_storage_rd *rd, const as_rec_props *p_rec_props)
 {
 	if (p_rec_props->p_data) {
-		// set up rd so the metadata gets written to disk
+		// Copy rec-props into rd so the metadata gets written to device.
 		rd->rec_props = *p_rec_props;
 
-		// if this record is not yet a member of the set, add it
-		if (! as_index_has_set(rd->r)) {
-			char *set_name = NULL;
-			int rv = as_rec_props_get_value(p_rec_props, CL_REC_PROPS_FIELD_SET_NAME, NULL, (uint8_t **)&set_name);
-			if (rv == 0) {
-				as_index_set_set(rd->r, rd->ns, set_name, false);
-			}
-		}
-
-		// If a key wasn't stored, and we got one, accommodate it.
-		if (! as_index_is_flag_set(rd->r, AS_INDEX_FLAG_KEY_STORED)) {
-			uint32_t key_size;
-			uint8_t* key;
-
-			if (as_rec_props_get_value(p_rec_props, CL_REC_PROPS_FIELD_KEY,
-					&key_size, &key) == 0) {
-				if (rd->ns->storage_data_in_memory) {
-					as_record_allocate_key(rd->r, key, key_size);
-				}
-
-				as_index_set_flags(rd->r, AS_INDEX_FLAG_KEY_STORED);
-			}
-		}
+		// Apply the metadata in rec-props to the record.
+		as_record_apply_properties(rd->r, rd->ns, p_rec_props);
 	}
 }
 

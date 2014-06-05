@@ -2809,32 +2809,8 @@ ssd_record_add(drv_ssds* ssds, drv_ssd* ssd, drv_ssd_block* block,
 	cf_atomic_int_setmax(&ns->max_void_time, r->void_time);
 
 	if (props.size != 0) {
-		// Set the record's set-id. (Do this early since it's needed for the
-		// secondary index update.)
-		if (! as_index_has_set(r)) {
-			const char* set_name;
-
-			if (as_rec_props_get_value(&props, CL_REC_PROPS_FIELD_SET_NAME,
-					NULL, (uint8_t**)&set_name) == 0) {
-				as_index_set_set(r, ns, set_name, false);
-			}
-		}
-
-		// Set the record's stored key.
-		// TODO - may have to do this differently when we can un-friend keys.
-		if (! as_index_is_flag_set(r, AS_INDEX_FLAG_KEY_STORED)) {
-			uint32_t key_size;
-			uint8_t* key;
-
-			if (as_rec_props_get_value(&props, CL_REC_PROPS_FIELD_KEY,
-					&key_size, &key) == 0) {
-				if (ns->storage_data_in_memory) {
-					as_record_allocate_key(r, key, key_size);
-				}
-
-				as_index_set_flags(r, AS_INDEX_FLAG_KEY_STORED);
-			}
-		}
+		// Do this early since set-id is needed for the secondary index update.
+		as_record_apply_properties(r, ns, &props);
 	}
 
 	as_ldt_record_set_rectype_bits(r, &props);

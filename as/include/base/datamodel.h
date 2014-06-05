@@ -414,6 +414,7 @@ extern int32_t as_bin_get_index(as_storage_rd *rd, uint8_t *name, size_t namesz)
 extern int as_bin_get_all_versions(as_storage_rd *rd, uint8_t *name, size_t namesz, as_bin **curr_bins);
 extern void as_bin_allocate_bin_space(as_record *r, as_storage_rd *rd, int32_t delta);
 extern void as_bin_destroy(as_storage_rd *rd, uint16_t i);
+extern void as_bin_destroy_from(as_storage_rd *rd, uint16_t i);
 extern void as_bin_destroy_all(as_storage_rd *rd);
 extern uint16_t as_bin_inuse_count(as_storage_rd *rd);
 extern void as_bin_all_dump(as_storage_rd *rd, char *msg);

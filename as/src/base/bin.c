@@ -532,9 +532,9 @@ as_bin_destroy(as_storage_rd *rd, uint16_t i)
 }
 
 void
-as_bin_destroy_all(as_storage_rd *rd)
+as_bin_destroy_from(as_storage_rd *rd, uint16_t from)
 {
-	for (uint16_t i = 0; i < rd->n_bins; i++) {
+	for (uint16_t i = from; i < rd->n_bins; i++) {
 		if (! as_bin_inuse(&rd->bins[i])) {
 			break;
 		}
@@ -542,7 +542,13 @@ as_bin_destroy_all(as_storage_rd *rd)
 		as_particle_destroy(&rd->bins[i], rd->ns->storage_data_in_memory);
 	}
 
-	as_bin_set_all_empty(rd);
+	as_bin_set_empty_from(rd, from);
+}
+
+void
+as_bin_destroy_all(as_storage_rd *rd)
+{
+	as_bin_destroy_from(rd, 0);
 }
 
 uint16_t

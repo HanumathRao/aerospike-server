@@ -643,11 +643,9 @@ as_record_unpickle_replace(as_record *r, as_storage_rd *rd, uint8_t *buf, size_t
 		}
 	}
 	else if (delta_bins < 0) {
-		// Data not in memory and we had read existing bins for sindex purposes.
-		// No need to destroy particles - if data-not-in-memory they're always
-		// on the stack - just empty the bins that won't be reused, so the old
-		// bins don't get written to device.
-		as_bin_set_empty_from(rd, newbins);
+		// Either single-bin data-in-memory where we deleted the (only) bin, or
+		// data-not-in-memory where we read existing bins for sindex purposes.
+		as_bin_destroy_from(rd, newbins);
 	}
 
 	const char* set_name = NULL;

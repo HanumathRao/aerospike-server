@@ -414,6 +414,7 @@ extern int32_t as_bin_get_index(as_storage_rd *rd, uint8_t *name, size_t namesz)
 extern int as_bin_get_all_versions(as_storage_rd *rd, uint8_t *name, size_t namesz, as_bin **curr_bins);
 extern void as_bin_allocate_bin_space(as_record *r, as_storage_rd *rd, int32_t delta);
 extern void as_bin_destroy(as_storage_rd *rd, uint16_t i);
+extern void as_bin_destroy_from(as_storage_rd *rd, uint16_t i);
 extern void as_bin_destroy_all(as_storage_rd *rd);
 extern uint16_t as_bin_inuse_count(as_storage_rd *rd);
 extern void as_bin_all_dump(as_storage_rd *rd, char *msg);
@@ -489,7 +490,7 @@ extern void as_record_allocate_key(as_record* r, const uint8_t* key, uint32_t ke
 extern int as_record_pickle(as_record *r, as_storage_rd *rd, uint8_t **buf_r, size_t *len_r);
 extern int as_record_pickle_a_delete(byte **buf_r, size_t *len_r);
 extern uint32_t as_record_buf_get_stack_particles_sz(uint8_t *buf);
-extern int as_record_unpickle_replace(as_record *r, as_storage_rd *rd, uint8_t *buf, size_t bufsz, uint8_t **stack_particles);
+extern int as_record_unpickle_replace(as_record *r, as_storage_rd *rd, uint8_t *buf, size_t bufsz, uint8_t **stack_particles, bool has_sindex);
 extern int as_record_unpickle_merge(as_record *r, as_storage_rd *rd, uint8_t *buf, size_t bufsz, uint8_t **stack_particles, bool *record_written);
 extern int as_record_unused_version_get(as_storage_rd *rd);
 extern void as_record_apply_properties(as_record *r, as_namespace *ns, const as_rec_props *p_rec_props);

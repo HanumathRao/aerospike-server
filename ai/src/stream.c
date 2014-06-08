@@ -24,14 +24,11 @@
  */
 
 #include <assert.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
-
-#include <lua.h>
-#include <lauxlib.h>
-#include <lualib.h>
 
 #include "ai_obj.h"
 #include "bt.h"

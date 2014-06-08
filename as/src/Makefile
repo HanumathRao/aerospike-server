@@ -39,9 +39,6 @@ ifneq ($(USE_WARM),1)
   STORAGE_SOURCES += drv_ssd_cold.c
 endif
 
-#VERSION_SOURCES = $(DEPTH)/make_in/version.c
-#VERSION_OBJECTS = $(VERSION_SOURCES:.c=.o)
-
 HEADERS = $(BASE_HEADERS:%=base/%) $(FABRIC_HEADERS:%=fabric/%) $(STORAGE_HEADERS:%=storage/%)
 SOURCES = $(BASE_SOURCES:%=base/%) $(FABRIC_SOURCES:%=fabric/%) $(STORAGE_SOURCES:%=storage/%)
 

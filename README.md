@@ -16,10 +16,26 @@ Aerospike requires the GCC 4.1 or later toolchain, with the standard
 GNU/Linux development tools and libraries installed in the build
 environment. In particular, the following libraries are needed:
 
-* OpenSSL 0.9.8b or later is required for cryptographic hash functions
+#### OpenSSL
+
+OpenSSL 0.9.8b or later is required for cryptographic hash functions
 (RIPEMD-160 & SHA-1) and pseudo-random number generation.
 
-* User Defined Function (UDF) support requires Lua 5.1 or later.
+* The CentOS 6 OpenSSL packages to install are:  `openssl`,
+`openssl-devel`, `openssl-static`.
+
+* The Debian 6/7 and Ubuntu 10/12/14 OpenSSL packages to install are:
+`openssl` and `libssl-dev`.
+
+#### Lua 5.1
+
+The Lua 5.1 language is required for User Defined Function (UDF) support.
+
+* The CentOS 6 Lua packages to install are:  `lua`, `lua-devel`, and
+`lua-static`.
+
+* The Debian 6/7 and Ubuntu 10/12/14 Lua packages to install are:
+`lua5.1` and `liblua5.1-dev`.
 
 ### Submodules
 

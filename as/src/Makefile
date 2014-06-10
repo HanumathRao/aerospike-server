@@ -52,6 +52,12 @@ INCLUDES += -I$(COMMON)/target/$(PLATFORM)/include
 INCLUDES += -I$(MOD_LUA)/target/$(PLATFORM)/include
 INCLUDES += -I$(JANSSON)/src
 
+INCLUDE_LUA_5_1 = /usr/include/lua5.1
+ifneq ($(wildcard $(INCLUDE_LUA_5_1)),)
+  INCLUDES += -I$(INCLUDE_LUA_5_1)
+  LUA_SUFFIX = 5.1
+endif
+
 AS_LIBRARIES += $(LIBRARY_DIR)/libcf.a
 AS_LIBRARIES += $(LIBRARY_DIR)/libai.a
 AS_LIBRARIES += $(MOD_LUA)/target/$(PLATFORM)/lib/libmod_lua.a
@@ -66,12 +72,12 @@ ifeq ($(LD_LUA),static)
   # Find and add the static Lua library.
   AS_LIBRARIES += $(or \
 	$(wildcard /usr/local/lib/liblua.a), \
-	$(wildcard /usr/lib64/liblua.a), \
-	$(wildcard /usr/lib/x86_64-linux-gnu/liblua.a), \
+	$(wildcard /usr/lib64/liblua$(LUA_SUFFIX).a), \
+	$(wildcard /usr/lib/x86_64-linux-gnu/liblua$(LUA_SUFFIX).a), \
 	$(wildcard /usr/lib/liblua.a), \
 	$(error Cannot find "liblua.a"))
 else
-  LIBRARIES += -llua
+  LIBRARIES += -llua$(LUA_SUFFIX)
 endif
 
 ifeq ($(LD_JANSSON),static)

@@ -8,12 +8,12 @@ ifeq ($(USE_EE),1)
   include $(EEREPO)/cf/make_in/Makefile.vars
 endif
 
-HEADERS += arenax.h b64.h bits.h cf_random.h cf_str.h clock.h dynbuf.h
+HEADERS += arenax.h b64.h bits.h cf_str.h clock.h dynbuf.h
 HEADERS += enhanced_alloc.h fault.h hist.h hist_track.h jem.h mem_count.h
 HEADERS += meminfo.h msg.h olock.h queue.h rchash.h socket.h util.h
 HEADERS += vmapx.h
 
-SOURCES += alloc.c arenax.c cf_random.c cf_str.c daemon.c dynbuf.c fault.c
+SOURCES += alloc.c arenax.c cf_str.c daemon.c dynbuf.c fault.c
 SOURCES += hist.c hist_track.c id.c jem.c meminfo.c msg.c olock.c
 SOURCES += socket.c vmapx.c
 ifneq ($(USE_WARM),1)

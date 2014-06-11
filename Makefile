@@ -26,6 +26,12 @@
 #       deb:  Suitable for building and installing on Debian-derived systems.
 #       tar:  Makes an "Every Linux" distribution, packaged as a compressed "tar" archive.
 #
+# Targets for running the Aerospike Server in the source tree:
+#
+#   make init    - Initialize the server run-time directories.
+#   make start   - Start the server.
+#   make stop    - Stop the server.
+#
 # Advanced Targets:
 #
 #   make asm  - Build with support for the ASMalloc memory allocation tracking tool.
@@ -66,6 +72,20 @@ targetdirs:
 strip:	server
 	$(MAKE) -C xdr strip
 	$(MAKE) -C as strip
+
+.PHONY: init start stop
+init:
+	@echo "Creating and initializing working directories..."
+	mkdir -p run/log run/work/smd run/work/sys/udf/lua run/work/usr/udf/lua
+	cp -pr modules/lua-core/src/* run/work/sys/udf/lua
+
+start:
+	@echo "Running the Aerospike Server locally..."
+	$(BIN_DIR)/asd --config-file as/etc/aerospike_dev.conf
+
+stop:
+	@echo "Stopping the local Aerospike Server..."
+	PIDFILE=run/asd.pid ; if [ -f $$PIDFILE ]; then kill `cat $$PIDFILE`; rm $$PIDFILE; fi
 
 .PHONY: clean
 clean:	cleanmodules cleandist

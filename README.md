@@ -93,22 +93,41 @@ command:
 
 	$ make USE_JEM=0   -- Default build *without* JEMalloc support.
 
+## Configuring Aerospike
+
+Sample Aerospike configuration files are provided in `as/etc`.  The
+developer configuration file, `aerospike_dev.conf`, contains basic
+settings that should work out-of-the-box on most systems. The package
+example configuration files, `aerospike.conf`, and the Solid State Drive
+(SSD) version, `aerospike_ssd.conf`, are suitable for running Aerospike
+as a system daemon.
+
+These sample files may be modified for specific use cases (e.g., setting
+network addresses, defining namespaces, and setting storage engine
+properties) and tuned for for maximum performance on a particular
+system.  Also, system resource limits may need to be increased to allow,
+e.g., a greater number of concurrent connections to the database.  See
+"man limits.conf" for how to change the system's limit on a process'
+number of open file descriptors ("nofile".)
+
 ## Running Aerospike
 
 There are several options for running the Aerospike database. Which
-option to use depends upon whether the primary purpose is software
-development or production deployment.
+option to use depends upon whether the primary purpose is production
+deployment or software development.
 
-The preferred method to run Aerospike in a production environment is to
-build and install the Aerospike package appropriate for your Linux
-distribution (i.e., an `".rpm"`, `".deb"`, or `".tgz"` file), and then
-to control the state of the Aerospike daemon via the daemon init script
-commands, e.g., `service aerospike start`.  (Please refer to the main
-Aerospike documentation for more detailed information.)
+The preferred method for running Aerospike in a production environment
+is to build and install the Aerospike package appropriate for the target
+Linux distribution (i.e., an `".rpm"`, `".deb"`, or `".tgz"` file), and
+then to control the state of the Aerospike daemon via the daemon init
+script commands, e.g., `service aerospike start`.
 
-A convenient way to run Aerospike in a development environment is to run
-out of the source tree top-level directory (`aerospike-server`) using
-the following command:
+A convenient way to run Aerospike in a development environment is to use
+the following commands from within the top-level directory of the source
+code tree (`aerospike-server`):
+
+To create and initialize the `run` directory with the files needed for
+running Aerospike, use:
 
 	$ make init
 
@@ -132,3 +151,8 @@ To halt the server:
 or, equivalently:
 
 	$ kill `cat run/asd.pid` ; rm run/asd.pid
+
+Please refer to the full documentation on the Aerospike web site,
+`www.aerospike.com`, for more detailed information about configuring
+and running the Aerospike Database Server, as well as the about the
+Aerospike client API packages for popular programming languages.

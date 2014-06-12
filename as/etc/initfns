@@ -4,11 +4,11 @@
 
 # Enable any requested library preloads:
 if [[ $2 =~ jem$ ]]; then
-  export LD_PRELOAD=/opt/aerospike/lib/libjemalloc.so
+  LD_PRELOAD=/opt/aerospike/lib/libjemalloc.so
   if [[ $2 =~ ^as ]]; then
-    export LD_PRELOAD=/opt/aerospike/lib/asmalloc.jem.so:$LD_PRELOAD
+    LD_PRELOAD=/opt/aerospike/lib/asmalloc.jem.so:$LD_PRELOAD
   else if [[ $2 =~ ^rz ]]; then
-      export MALLOC_CONF=narenas:150,junk:true,redzone:true,abort:true
+      export MALLOC_CONF=junk:true,redzone:true,abort:true
     fi
   fi
   echo "MALLOC_CONF = $MALLOC_CONF"

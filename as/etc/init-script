@@ -17,6 +17,7 @@ ASD_GROUP=$ASD_USER
 
 INITFNS=/etc/aerospike/initfns
 if [ -f $INITFNS ]; then . $INITFNS; fi
+if [ -n $LD_PRELOAD ]; then export LD_PRELOAD; fi
 
 # in production, the corefiles are so huge as to prevent
 # quick restarts of servers. Turn this on only if requested

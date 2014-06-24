@@ -56,6 +56,9 @@ submodules must be fetched for the first time using the following
 command:
 
 	$ git submodule update --init
+	
+As this project uses submodules, downloading via Github's prebuilt
+package does not work.
 
 ## Building Aerospike
 
